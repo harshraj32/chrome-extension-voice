@@ -1,0 +1,36 @@
+{
+  "manifest_version": 3,
+  "name": "Voice Dictation Tool",
+  "version": "1.0",
+  "description": "Dictate text into any text field",
+  "permissions": [
+    "activeTab",
+    "scripting"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "action": {
+    "default_icon": {
+      "16": "icons/icon16_inactive.png",
+      "48": "icons/icon48_inactive.png",
+      "128": "icons/icon128_inactive.png"
+    }
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "icons": {
+    "16": "icons/icon16_inactive.png",
+    "48": "icons/icon48_inactive.png",
+    "128": "icons/icon128_inactive.png"
+  },
+  "commands": {
+    "toggle-recording": {
+      "suggested_key": {
+        "default": "Alt+R"
+      },
+      "description": "Toggle voice dictation recording"
+    }
+  }
+}

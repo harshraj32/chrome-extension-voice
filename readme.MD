@@ -134,7 +134,7 @@ The configuration file manages:
 - OpenAI API configuration
 - Feature flags for enabling/disabling functionality
 
-### .env.example.js
+### .env.js
 
 A template for creating your own `.env.js` file with:
 - OpenAI API key

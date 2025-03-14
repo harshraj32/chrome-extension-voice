@@ -1,0 +1,22 @@
+# Environment variables with sensitive information
+.env.js
+
+# Legacy files
+legacy/
+
+# Node modules if using npm
+node_modules/
+
+# Build artifacts
+dist/
+build/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor files
+.vscode/
+.idea/
+*.swp
+*.swo 

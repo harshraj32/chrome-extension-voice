@@ -1,12 +1,11 @@
 {
   "manifest_version": 3,
-  "name": "Voice Dictation with Proper Noun Correction",
+  "name": "Voice Dictation Tool",
   "version": "1.0",
-  "description": "Dictate text into any text field with advanced proper noun correction",
+  "description": "Dictate text into any text field with proper noun correction",
   "permissions": [
     "activeTab",
     "scripting",
-    "commands",
     "storage"
   ],
   "host_permissions": [
@@ -34,5 +33,9 @@
       },
       "description": "Toggle voice dictation recording"
     }
-  }
+  },
+  "web_accessible_resources": [{
+    "resources": ["lib/config.js", "lib/prop-noun-handler.js", ".env.js"],
+    "matches": ["<all_urls>"]
+  }]
 }

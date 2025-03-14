@@ -1,200 +1,208 @@
-# Voice Dictation Chrome Extension with Proper Noun Correction
-
-A powerful Chrome extension that enables voice dictation with advanced proper noun correction using the LIA PHON system.
 # Voice Dictation Chrome Extension
 
-## Component Overview
+A Chrome extension that enables voice dictation into any text field with proper noun correction. This extension allows you to speak naturally and have your words transcribed into text fields, with special handling for proper nouns and technical terms.
 
-### Background Script (background.js)
-
-The background script serves as the main controller for the Voice Dictation Chrome extension. It:
-
-- Manages the extension's icon state (active/inactive)
-- Handles user interactions like toolbar icon clicks and keyboard shortcuts
-- Injects the content script into web pages when needed
-- Processes messages between the content script and the LIA PHON handler
-- Coordinates the overall extension functionality and state
-
-It acts as the bridge between user actions, the browser's context, and the specialized voice dictation functionality.
-
-### LIA PHON Handler (lia-phon-handler.js)
-
-The LIA PHON handler is the specialized module for improving speech recognition accuracy, particularly for proper nouns. It:
-
-- Maintains a database of proper nouns and their phonetic representations
-- Converts recognized speech into phonetic patterns for matching
-- Corrects misrecognized words based on phonetic similarity
-- Optionally processes text through an LLM (like ChatGPT) for further correction
-- Identifies and learns new proper nouns to improve future recognition
-
-It essentially works as the "intelligence" layer that enhances the browser's built-in speech recognition with specialized capabilities for handling names, technical terms, and other frequently misrecognized words.
-
-
-## Overview
-
-This extension allows users to dictate text into any input field on any webpage, with special handling for proper nouns and technical terms that are often misrecognized by traditional speech recognition systems.
 
 ## Features
 
-- **Easy Voice Dictation**: Click the extension icon or use keyboard shortcuts
-- **Smart Text Insertion**: Automatically finds and focuses the proper text field
-- **Proper Noun Correction**: Uses phonetic matching and optional LLM processing for better accuracy
-- **Learning System**: Identifies potential new proper nouns to improve future recognition
-- **Elegant UI**: Clean notifications with appropriate status indicators
-- **Accessibility Aware**: Handles aria-hidden properly and respects web page structure
+- Voice dictation into any text field on any website
+- Proper noun recognition and correction
+- Optional AI-powered text correction using OpenAI API
+- Keyboard shortcuts for quick toggling
+- Visual feedback with icon changes
+- Works offline (basic functionality) or with enhanced AI correction (with API key)
 
-## Technical Implementation
-
-### Architecture
-
-The extension consists of:
-
-1. **Background Script**: Manages the extension state and handles LIA PHON processing
-2. **Content Script**: Injected into web pages to handle speech recognition and text insertion
-3. **LIA PHON Handler**: Dedicated module for proper noun identification and correction
-
-### Speech Recognition Pipeline
-
+##Flow 
 ```
-Speech Input → Web Speech API → Raw Transcript → LIA PHON Processing → Corrected Text → Insertion
+User Action (Icon Click/Keyboard Shortcut)
+       ↓
+Background Script (background.js)
+       ↓
+Content Script Injection (content-script.js)
+       ↓
+Speech Recognition (Web Speech API)
+       ↓
+Raw Transcript
+       ↓
+Background Script for Processing
+       ↓
+Proper Noun Handler (prop-noun-handler.js)
+       ↓
+Phonetic Matching → LLM Processing (OpenAI API)
+       ↓
+Corrected Text
+       ↓
+Content Script
+       ↓
+Text Insertion into Active Element
 ```
-
-### Keyboard Shortcut Implementation
-
-We implemented two approaches for keyboard shortcuts:
-
-1. **Chrome Commands API**: Added `Alt+R` shortcut in manifest.json
-   ```json
-   "commands": {
-     "toggle-recording": {
-       "suggested_key": {
-         "default": "Alt+R"
-       },
-       "description": "Toggle voice dictation recording"
-     }
-   }
-   ```
-
-2. **Direct KeyDown Listener**: Added Shift key support through DOM events
-   ```javascript
-   document.addEventListener('keydown', function(event) {
-     if (event.key === 'Shift' && !event.repeat) {
-       toggleRecording();
-     }
-   });
-   ```
-
-**Known Issues with Keyboard Implementation**:
-- The Shift key implementation can interfere with normal typing
-- Chrome's Commands API has limitations with certain key combinations
-- attempted to use `Shift+R` but Chrome rejected this in the manifest, showing:
-  ```
-  Error: Invalid value for 'commands[1].default': Shift+R.
-  Could not load manifest.
-  ```
-- Different operating systems have different keyboard shortcut restrictions
-
-### Proper Noun Correction Techniques
-
-The extension employs a multi-layered approach to proper noun correction:
-
-#### 1. Phonetic Matching (Current Implementation)
-- Generates simplified phonetic representations of words
-- Compares phonetic signatures to known proper nouns
-- Maps similar-sounding words to their correct forms
-
-**Current Limitations**:
-- Relies on exact phonetic matching which is brittle
-- Cannot handle contextual understanding
-- Requires manual addition of proper nouns to the database
-- Cannot distinguish between homonyms (words that sound the same but have different meanings)
-
-#### 2. Optional LLM Enhancement
-- Uses ChatGPT (via API) to perform advanced linguistic correction
-- Leverages contextual understanding of sentences
-- Can fix grammatical issues alongside proper noun recognition
-
-**Current Limitations**:
-- Requires API key and internet connection
-- Adds latency to the dictation process
-- May incorrectly "fix" some specialized terms
-
-#### 3. Proper Noun Learning
-- Extracts potential new proper nouns from processed text
-- Identifies capitalized words not at the beginning of sentences
-- Detects multi-word proper noun sequences
-
-**Current Limitations**:
-- False positive detection of non-proper nouns
-- No verification mechanism for newly detected terms
-- No categorization of detected proper nouns
-
-## Known Issues and Limitations
-
-### Proper Noun Recognition Challenges
-
-The current implementation faces several challenges:
-
-1. **Recognition Accuracy**: The phonetic algorithm is too simplistic for many proper nouns, especially those with unusual pronunciations.
-
-2. **Context Awareness**: The system doesn't use surrounding words to determine if a word is a proper noun.
-
-3. **Domain Specificity**: Technical terms in specialized fields (medical, legal, scientific) are poorly handled.
-
-4. **Homophone Confusion**: Cannot differentiate between words that sound the same but have different meanings (e.g., "there" vs. "their").
-
-5. **Dialect and Accent Handling**: Does not account for variations in pronunciation across different English dialects.
-
-### Technical Issues
-
-1. **Recursive Function Calls**: Some older code had stack overflow risks due to recursion.
-
-2. **Error Handling**: Not all edge cases are properly handled.
-
-3. **Accessibility Integration**: May conflict with some screen readers or accessibility tools.
-
-4. **Performance**: The LLM integration adds significant latency.
-
-## Future Improvements
-
-### Planned Enhancements
-
-1. **Enhanced Phonetic Algorithm**: Implement a more sophisticated phonetic matching system like Double Metaphone or Beider-Morse.
-
-2. **Context-Aware Correction**: Use the surrounding words to improve proper noun detection.
-
-3. **Domain-Specific Libraries**: Add specialized vocabularies for different professional domains.
-
-4. **User Dictionary Management**: Create a UI for users to view and manage their proper noun dictionary.
-
-5. **Offline Processing**: Implement local ML models to reduce dependence on cloud APIs.
-
 ## Installation
 
-### From Chrome Web Store
+### From Source
 
-1. Visit the [Chrome Web Store](https://chrome.google.com/webstore)
-2. Search for "Voice Dictation with Proper Noun Correction"
-3. Click "Add to Chrome"
+1. Clone this repository:
+   ```
+   git clone https://github.com/yourusername/voice-dictation-extension.git
+   ```
 
-### Manual Installation
+2. Set up your API key (optional, for AI correction):
+   - Add your OpenAI API key to `.env.js`
 
-1. Download or clone this repository
-2. Open Chrome and navigate to `chrome://extensions/`
-3. Enable "Developer mode" (top right)
-4. Click "Load unpacked" and select the downloaded folder
+3. Load the extension in Chrome:
+   - Open Chrome and navigate to `chrome://extensions/`
+   - Enable "Developer mode" (toggle in the top right)
+   - Click "Load unpacked" and select the extension directory
 
+4. **Important:** Pin the extension to your toolbar for easier access:
+   - Click the puzzle icon in the Chrome toolbar
+   - Find "Voice Dictation Tool" in the dropdown
+   - Click the pin icon next to it to pin it to your toolbar
 ## Usage
 
-1. Click the extension icon in your toolbar
-2. When prompted, allow microphone access
-3. Click into any text field where you want to dictate
-4. Start speaking - your words will appear in the text field
-5. Click the icon again (or press Alt+R) to stop dictation
+- Click the extension icon to start/stop voice dictation
+(Windows/Linux)
+- Speak clearly into your microphone
+- Text will be inserted at the cursor position in the active text field
+
+## Project Structure
+
+### Core Files
+
+| File | Purpose |
+|------|---------|
+| `manifest.json` | Extension configuration file that defines permissions, resources, and metadata |
+| `background.js` | Background service worker that manages the extension's lifecycle and handles communication |
+| `content-script.js` | Injected into web pages to handle speech recognition and text insertion |
+| `lib/prop-noun-handler.js` | Handles proper noun recognition, correction, and AI processing |
+| `lib/config.js` | Configuration management for the extension |
+| `.env.js` | Template for environment variables (API keys, etc.) |
+
+### Directory Structure
+
+- `icons/` - Contains extension icons for different states and sizes
+- `lib/` - Contains library files used by the extension
+- `legacy/` - Contains older versions of files (for reference only)
+
+## File Descriptions
+
+### manifest.json
+
+The manifest file defines the extension's metadata, permissions, and resources. It specifies:
+- Basic information (name, version, description)
+- Required permissions (activeTab, scripting, storage)
+- Icon paths for different states
+- Background script configuration
+- Keyboard command shortcuts
+- Web accessible resources
+
+### background.js
+
+The background script runs as a service worker and manages the extension's core functionality:
+- Loads configuration and environment variables
+- Initializes the proper noun handler
+- Handles extension icon clicks
+- Injects the content script into web pages
+- Processes messages from the content script
+- Manages the recording state and updates the extension icon
+- Routes proper noun processing requests to the handler
+
+### content-script.js
+
+The content script is injected into web pages and handles:
+- Speech recognition using the Web Speech API
+- Microphone permission requests
+- Text insertion into the active text field
+- User interface notifications
+- Keyboard shortcut handling within the page
+- Communication with the background script
+
+### lib/prop-noun-handler.js
+
+This file handles all proper noun processing:
+- Maintains a database of known proper nouns and their phonetic representations
+- Generates phonetic representations of words for matching
+- Corrects transcribed text using phonetic matching
+- Processes text with OpenAI API for enhanced correction (if enabled)
+- Extracts potential new proper nouns from corrected text
+- Manages settings for the correction system
+
+### lib/config.js
+
+The configuration file manages:
+- Default settings for the extension
+- Loading environment variables from `.env.js`
+- OpenAI API configuration
+- Feature flags for enabling/disabling functionality
+
+### .env.example.js
+
+A template for creating your own `.env.js` file with:
+- OpenAI API key
+- Model selection
+- Feature flags
+
+## Configuration
+
+You can configure the extension by editing the `.env.js` file:
+
+```javascript
+const ENV_VARS = {
+  // Your OpenAI API key for AI-powered correction
+  OPENAI_API_KEY: 'your-api-key-here',
+  
+  // Model to use (default: gpt-4o)
+  OPENAI_MODEL: 'gpt-4o',
+  
+  // Feature flags
+  USE_LLM: true,  // Enable/disable AI correction
+  AUTO_CORRECT: true  // Enable/disable automatic correction
+};
+```
+
+## How It Works
+
+1. **Initialization**: When the extension is loaded, the background script initializes the configuration and proper noun handler.
+
+2. **Activation**: When you click the extension icon or use the keyboard shortcut, the background script injects the content script into the current tab.
+
+3. **Speech Recognition**: The content script initializes the Web Speech API and starts listening for speech.
+
+4. **Text Processing**:
+   - Speech is converted to text using the browser's speech recognition
+   - Text is sent to the background script for proper noun correction
+   - If enabled, the text is processed with OpenAI's API for enhanced correction
+   - Corrected text is returned to the content script
+
+5. **Text Insertion**: The content script inserts the corrected text into the active text field.
+
+6. **Proper Noun Learning**: The system can identify potential new proper nouns from the corrected text for future recognition.
+
+## Permissions
+
+This extension requires:
+- `activeTab`: To access the current tab for injecting the content script
+- `scripting`: To execute scripts in the current tab
+- `storage`: To save settings and proper noun data
+- Microphone access: For voice recognition (requested at runtime)
+
+## Troubleshooting
+
+- **Microphone not working**: Ensure you've granted microphone permissions to the website
+- **Extension icon not changing**: Try reloading the extension
+- **Text not inserting**: Make sure you've clicked into a text field before speaking
+- **AI correction not working**: Check that you've added a valid API key to `.env.js`
+
+## Development
+
+To modify or extend this extension:
+
+1. Make your changes to the relevant files
+2. Test locally by loading the unpacked extension
+3. For significant changes, consider creating a new branch
 
 
-## Acknowledgments
+## Acknowledgements
 
-- Web Speech API
-- The ISIP Phonetic Algorithm
-- OpenAI for ChatGPT API integration
+- Uses the Web Speech API for speech recognition
+- Optional integration with OpenAI API for enhanced text correction
+

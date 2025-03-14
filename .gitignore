@@ -1,5 +1,4 @@
-# Environment variables with sensitive information
-.env.js
+
 
 # Legacy files
 legacy/

@@ -3,6 +3,11 @@
 A Chrome extension that enables voice dictation into any text field with proper noun correction. This extension allows you to speak naturally and have your words transcribed into text fields, with special handling for proper nouns and technical terms.
 
 
+## Next update 
+Upon further digging found this beautiful website forvo which could take care of 70% of proper nouns in major languages. wanted to scrape them all but found an open source alternative to it here: https://lingualibre.org/LanguagesGallery/
+
+what I plan to do tomorrow is get as much data from here then just use a model like whisper then insert these words into sentences as proper nouns and create atleast 5 example sentences and train the model on this data. im sure the base model is strong enough to learn it pretty quickly. Tired today will work on tomorrow.
+
 ## Features
 
 - Voice dictation into any text field on any website

@@ -1,5 +1,10 @@
 // Track recording state
 let isRecording = false;
+// Uncomment this if you're using a service worker background:
+importScripts('lia-phon-handler.js');
+// Import LIA PHON handler if using as a service worker
+// Uncomment this if you're using a service worker background:
+// importScripts('lia-phon-handler.js');
 
 // Handle extension icon click
 chrome.action.onClicked.addListener(async (tab) => {
@@ -26,39 +31,41 @@ chrome.action.onClicked.addListener(async (tab) => {
   }
 });
 
-// Listen for keyboard commands - change this in manifest.json to "Command+;"
-chrome.commands.onCommand.addListener((command) => {
-  if (command === "toggle-recording") {
-    // Get the active tab
-    chrome.tabs.query({active: true, currentWindow: true}, async (tabs) => {
-      if (tabs.length > 0) {
-        const tab = tabs[0];
-        
-        // Skip chrome:// and edge:// pages
-        if (!tab.url.startsWith('chrome://') && !tab.url.startsWith('edge://')) {
-          try {
-            // Inject the content script if it's not already there
-            await chrome.scripting.executeScript({
-              target: { tabId: tab.id },
-              function: injectContentScript
-            });
-            
-            // Send message to toggle recording
-            chrome.tabs.sendMessage(tab.id, { 
-              action: 'toggleRecording'
-            }).catch(error => {
-              console.error('Error sending toggle command:', error);
-            });
-          } catch (error) {
-            console.error('Error injecting content script for keyboard command:', error);
+// Only set up command listener if the commands API is available
+if (chrome.commands) {
+  chrome.commands.onCommand.addListener((command) => {
+    if (command === "toggle-recording") {
+      // Get the active tab
+      chrome.tabs.query({active: true, currentWindow: true}, async (tabs) => {
+        if (tabs.length > 0) {
+          const tab = tabs[0];
+          
+          // Skip chrome:// and edge:// pages
+          if (!tab.url.startsWith('chrome://') && !tab.url.startsWith('edge://')) {
+            try {
+              // Inject the content script if it's not already there
+              await chrome.scripting.executeScript({
+                target: { tabId: tab.id },
+                function: injectContentScript
+              });
+              
+              // Send message to toggle recording
+              chrome.tabs.sendMessage(tab.id, { 
+                action: 'toggleRecording'
+              }).catch(error => {
+                console.error('Error sending toggle command:', error);
+              });
+            } catch (error) {
+              console.error('Error injecting content script for keyboard command:', error);
+            }
           }
         }
-      }
-    });
-  }
-});
+      });
+    }
+  });
+}
 
-// Listen for updates from content script
+// Listen for updates from content script and LIA PHON processing requests
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.action === 'updateRecordingState') {
     isRecording = message.isRecording;
@@ -77,6 +84,56 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     sendResponse({success: true});
   }
   
+  // Process speech with LIA PHON
+  if (message.action === 'processSpeechWithLIAPhon') {
+    liaPhonHandler.processTranscript(message.transcript)
+      .then(correctedTranscript => {
+        sendResponse({
+          success: true, 
+          correctedTranscript: correctedTranscript
+        });
+      })
+      .catch(error => {
+        console.error('Error processing with LIA PHON:', error);
+        sendResponse({
+          success: false, 
+          correctedTranscript: message.transcript
+        });
+      });
+    return true; // Keep the message channel open for async response
+  }
+  
+  // Handle LIA PHON related requests
+  if (message.action === 'addProperNoun') {
+    liaPhonHandler.addProperNoun(message.term, message.category)
+      .then(sendResponse);
+    return true;
+  }
+  
+  if (message.action === 'removeProperNoun') {
+    liaPhonHandler.removeProperNoun(message.term)
+      .then(sendResponse);
+    return true;
+  }
+  
+  if (message.action === 'getAllProperNouns') {
+    liaPhonHandler.getAllProperNouns()
+      .then(sendResponse);
+    return true;
+  }
+  
+  if (message.action === 'updateSettings') {
+    liaPhonHandler.updateSettings(message.settings)
+      .then(sendResponse);
+    return true;
+  }
+  
+  if (message.action === 'extractPotentialProperNouns') {
+    liaPhonHandler.extractPotentialProperNouns(message.text)
+      .then(sendResponse);
+    return true;
+  }
+  
   return true; // Keep the message channel open for async response
 });
 
@@ -86,17 +143,12 @@ function injectContentScript() {
   if (window.__voiceDictationInjected) return;
   window.__voiceDictationInjected = true;
   
-  console.log('Voice dictation content script injected');
-  
   // Global variables
   let recognition = null;
   let isRecording = false;
   let permissionStatus = 'unknown';
   let notificationTimeoutId = null;
-  let textFieldCheckTimeoutId = null; // Changed from interval to timeout
   let hasShownNoTextFieldWarning = false;
-  let lastNotificationTime = 0; // Track when the last notification was shown
-  const MIN_NOTIFICATION_INTERVAL = 5000; // Minimum time between similar notifications (5 seconds)
   
   // Listen for messages from the background script
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -115,37 +167,9 @@ function injectContentScript() {
     if (isRecording) {
       stopRecognition();
     } else {
-      // Try to request permissions first directly to handle explicit permission prompt
-      try {
-        await requestMicrophonePermission();
-        const started = await startRecognition();
-        // Only update the icon state if recording actually started
-        updateRecordingState(started);
-      } catch (error) {
-        console.error('Error in toggle recording:', error);
-        updateRecordingState(false);
-      }
-    }
-  }
-  
-  // Separate function to explicitly request microphone permission
-  async function requestMicrophonePermission() {
-    try {
-      console.log('Explicitly requesting microphone permission...');
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      
-      // Log successful microphone access
-      console.log('Microphone access explicitly granted, stopping stream');
-      
-      // We got permission, stop all tracks
-      stream.getTracks().forEach(track => {
-        track.stop();
-      });
-      
-      return true;
-    } catch (error) {
-      console.error('Explicit permission request failed:', error);
-      throw error; // Rethrow to be handled by caller
+      const started = await startRecognition();
+      // Only update the icon state if recording actually started
+      updateRecordingState(started);
     }
   }
   
@@ -163,86 +187,29 @@ function injectContentScript() {
   async function checkMicrophonePermission() {
     // If we already know permission is granted, return true
     if (permissionStatus === 'granted') {
-      console.log('Permission already granted, skipping check');
       return true;
     }
     
     try {
-      console.log('Checking for available media devices...');
-      
-      // Make sure we have the mediaDevices API
-      if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) {
-        console.error('mediaDevices API not available in this browser');
-        showNotification('Your browser does not support microphone access. Please try a different browser.', 'error');
-        return false;
-      }
-      
-      // First check if we already have permission by enumerating devices
-      // without requesting permission (to avoid double permission dialog)
-      try {
-        const devices = await navigator.mediaDevices.enumerateDevices();
-        
-        // If we can see device labels, we likely already have permission
-        const hasLabels = devices.some(device => device.label && device.label.length > 0);
-        
-        if (hasLabels) {
-          console.log('Device labels available, permission likely granted');
-          
-          // Count audio devices
-          const audioDevices = devices.filter(device => device.kind === 'audioinput');
-          console.log('Available audio devices:', audioDevices);
-          
-          if (audioDevices.length > 0) {
-            console.log('Audio devices found with labels, assuming permission granted');
-            permissionStatus = 'granted';
-            return true;
-          } else {
-            console.error('No audio input devices found');
-            showNotification('No microphone detected on your device. Please connect a microphone and try again.', 'error');
-            permissionStatus = 'no-device';
-            return false;
-          }
-        } else {
-          console.log('No device labels, need to request permission');
-        }
-      } catch (error) {
-        console.error('Error checking initial devices:', error);
-      }
-      
-      // Request permission explicitly - use the simplest possible constraints
-      console.log('Requesting audio permission...');
-      const stream = await navigator.mediaDevices.getUserMedia({ 
-        audio: true  // Use simplest possible constraint
-      });
-      
-      // Log successful microphone access
-      console.log('Microphone access granted:', stream);
-      
-      // Now that we have permission, enumerate devices again to check for microphones
       const devices = await navigator.mediaDevices.enumerateDevices();
       const audioDevices = devices.filter(device => device.kind === 'audioinput');
-      console.log('Audio devices after permission:', audioDevices);
-      
-      // We got permission, stop all tracks
-      stream.getTracks().forEach(track => {
-        console.log('Stopping track:', track);
-        track.stop();
-      });
       
       if (audioDevices.length === 0) {
-        console.error('No audio input devices found even after permission granted');
-        showNotification('Permission granted but no microphone detected. Please connect a microphone and try again.', 'error');
+        showNotification('No microphone detected on your device.', 'error');
         permissionStatus = 'no-device';
         return false;
       }
+      
+      // Request permission explicitly
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      
+      // We got permission, stop all tracks
+      stream.getTracks().forEach(track => track.stop());
       
       permissionStatus = 'granted';
       return true;
     } catch (error) {
       console.error('Microphone permission error:', error);
-      console.error('Error name:', error.name);
-      console.error('Error message:', error.message);
-      console.error('Error stack:', error.stack);
       
       if (error.name === 'NotAllowedError' || error.name === 'PermissionDeniedError') {
         showNotification(
@@ -254,17 +221,8 @@ function injectContentScript() {
       } else if (error.name === 'NotFoundError') {
         showNotification('No microphone found. Please connect a microphone and try again.', 'error');
         permissionStatus = 'no-device';
-      } else if (error.name === 'NotReadableError' || error.name === 'TrackStartError') {
-        showNotification('Cannot access microphone. It may be in use by another application.', 'error');
-        permissionStatus = 'in-use';
-      } else if (error.name === 'SecurityError') {
-        showNotification('Security error accessing microphone. Try using HTTPS or checking browser permissions.', 'error');
-        permissionStatus = 'security';
-      } else if (error.name === 'AbortError') {
-        showNotification('Microphone access request was aborted. Please try again.', 'error');
-        permissionStatus = 'aborted';
       } else {
-        showNotification(`Microphone error: ${error.name} - ${error.message}`, 'error');
+        showNotification(`Microphone error: ${error.message}`, 'error');
         permissionStatus = 'error';
       }
       
@@ -272,19 +230,29 @@ function injectContentScript() {
     }
   }
   
-  // Create and show notification with improved UI and rate limiting
-  function showNotification(message, type, duration = 5000) {
-    const now = Date.now();
+  // Process transcript with LIA PHON
+  async function processWithLIAPhon(transcript) {
+    let correctedText = transcript;
     
-    // Rate limiting for notifications - prevent spam
-    if (now - lastNotificationTime < MIN_NOTIFICATION_INTERVAL && 
-        document.getElementById('voice-dictation-notification')) {
-      // Don't show if a similar notification was recently shown
-      return;
+    try {
+      // Send message to background script for processing
+      const response = await chrome.runtime.sendMessage({
+        action: 'processSpeechWithLIAPhon',
+        transcript: transcript
+      });
+      
+      if (response && response.success) {
+        correctedText = response.correctedTranscript;
+      }
+    } catch (error) {
+      console.error('Error processing with LIA PHON:', error);
     }
     
-    lastNotificationTime = now;
-    
+    return correctedText;
+  }
+  
+  // Create and show notification with improved UI
+  function showNotification(message, type, duration = 5000) {
     // Clear any existing notification timeout
     if (notificationTimeoutId) {
       clearTimeout(notificationTimeoutId);
@@ -474,13 +442,6 @@ function injectContentScript() {
   function isValidTextInputElement(element) {
     if (!element) return false;
     
-    // Special case for Google search input
-    if (window.location.hostname.includes('google') && 
-        ((element.tagName === 'INPUT' && element.name === 'q') || 
-         (element.tagName === 'TEXTAREA' && element.name === 'q'))) {
-      return true;
-    }
-    
     // Check if element is hidden
     if (element.offsetParent === null && 
         !(element.tagName === 'BODY') && // Body is a special case
@@ -490,12 +451,6 @@ function injectContentScript() {
     
     // Check if element is disabled or readonly
     if (element.disabled || element.readOnly) {
-      return false;
-    }
-    
-    // Check if element has zero height or width (might be hidden)
-    const rect = element.getBoundingClientRect();
-    if (rect.width === 0 || rect.height === 0) {
       return false;
     }
     
@@ -512,8 +467,6 @@ function injectContentScript() {
     return (
       element.isContentEditable ||
       (element.tagName === 'TEXTAREA') ||
-      (element.role === 'textbox') ||
-      (element.getAttribute('role') === 'textbox') ||
       (element.tagName === 'INPUT' && 
        ['text', 'search', 'url', 'tel', 'email', 'password', 'number'].includes(element.type))
     );
@@ -521,38 +474,8 @@ function injectContentScript() {
   
   // Find a valid text input element on the page
   function findValidTextInputElement() {
-    // First, check for Google search input as a priority
-    if (window.location.hostname.includes('google')) {
-      const googleSearchInput = document.querySelector('input[name="q"]') || 
-                              document.querySelector('textarea[name="q"]');
-      if (googleSearchInput && isValidTextInputElement(googleSearchInput)) {
-        return googleSearchInput;
-      }
-    }
+    const inputs = document.querySelectorAll('input[type="text"], input[type="search"], input[type="email"], input[type="tel"], textarea, [contenteditable="true"]');
     
-    // Next, check for any visible input field
-    const inputs = document.querySelectorAll('input[type="text"], input[type="search"], input[type="email"], input[type="tel"], textarea, [contenteditable="true"], [role="textbox"]');
-    
-    // First try to find inputs that are currently visible in the viewport
-    const viewportHeight = window.innerHeight;
-    let visibleInputs = [];
-    
-    for (const input of inputs) {
-      if (isValidTextInputElement(input)) {
-        const rect = input.getBoundingClientRect();
-        // Check if the element is in the viewport
-        if (rect.top >= 0 && rect.bottom <= viewportHeight) {
-          visibleInputs.push(input);
-        }
-      }
-    }
-    
-    // If we found visible inputs, return the first one
-    if (visibleInputs.length > 0) {
-      return visibleInputs[0];
-    }
-    
-    // If no visible inputs, fall back to the first valid input
     for (const input of inputs) {
       if (isValidTextInputElement(input)) {
         return input;
@@ -562,7 +485,7 @@ function injectContentScript() {
     return null;
   }
   
-  // Check if there is a valid text field selected
+  // Check if there is a valid text field selected (called once at start of recording)
   function hasValidTextFieldSelected() {
     const activeElement = document.activeElement;
     return isValidTextInputElement(activeElement);
@@ -572,41 +495,6 @@ function injectContentScript() {
   function hasValidTextField() {
     return !!findValidTextInputElement();
   }
-  
-  // Check text field status once with a delay
-  function checkTextFieldStatus() {
-    // Only show notification if still recording
-    if (!isRecording) return;
-    
-    if (!hasValidTextFieldSelected()) {
-      // Only show notification if we haven't already shown one
-      if (!hasShownNoTextFieldWarning) {
-        // Check if there's any text field on the page
-        if (hasValidTextField()) {
-          showNotification('Please click into a text field to dictate text.', 'warning', 5000);
-        } else {
-          showNotification('No text fields found on this page. Voice dictation may not work here.', 'error', 5000);
-        }
-        hasShownNoTextFieldWarning = true;
-      }
-    } else {
-      // There is a text field selected now, so we can clear the warning flag
-      hasShownNoTextFieldWarning = false;
-    }
-  }
-  
-  // Add keyboard shortcut for toggling recording with Command+;
-  document.addEventListener('keydown', function(event) {
-    // Check for Command(Meta)+; (semicolon) key press
-    if ((event.metaKey || event.ctrlKey) && event.key === ';') {
-      // Prevent default behavior (like opening browser shortcut menu)
-      event.preventDefault();
-      // Toggle recording only when the key is pressed, not when it's released
-      if (!event.repeat) {
-        toggleRecording();
-      }
-    }
-  });
   
   // Initialize speech recognition
   async function initializeSpeechRecognition() {
@@ -622,38 +510,33 @@ function injectContentScript() {
       return false;
     }
     
-    // Create recognition instance before checking permission (some browsers need this order)
+    // Always check microphone permission before proceeding
+    const permissionGranted = await checkMicrophonePermission();
+    if (!permissionGranted) {
+      return false;
+    }
+    
+    // Create recognition instance
     recognition = new SpeechRecognition();
     recognition.continuous = true;
     recognition.interimResults = true;
     recognition.lang = 'en-US';
-    
-    // Always check microphone permission before proceeding
-    const permissionGranted = await checkMicrophonePermission();
-    if (!permissionGranted) {
-      // Clear the recognition object if permission failed
-      recognition = null;
-      return false;
-    }
     
     // Set up recognition events
     recognition.onstart = function() {
       isRecording = true;
       showNotification('Voice dictation active. Speaking will enter text into your selected field.', 'success', 3000);
       
-      // Reset warning flag at the start of each recording session
-      hasShownNoTextFieldWarning = false;
-      
-      // Schedule a single check for text field after a delay
-      if (textFieldCheckTimeoutId) {
-        clearTimeout(textFieldCheckTimeoutId);
+      // Check for valid text field once at start, and show warning if needed
+      if (!hasValidTextFieldSelected()) {
+        if (hasValidTextField()) {
+          showNotification('Please click into a text field to dictate text.', 'warning', 5000);
+          hasShownNoTextFieldWarning = true;
+        } else {
+          showNotification('No text fields found on this page. Voice dictation may not work here.', 'error', 5000);
+          hasShownNoTextFieldWarning = true;
+        }
       }
-      
-      // Wait 2 seconds before checking for text field status
-      textFieldCheckTimeoutId = setTimeout(() => {
-        checkTextFieldStatus();
-        textFieldCheckTimeoutId = null;
-      }, 2000);
     };
     
     recognition.onresult = function(event) {
@@ -668,21 +551,25 @@ function injectContentScript() {
       
       // Insert text if we have a final result
       if (finalTranscript) {
-        const textInserted = insertTextAtCursor(finalTranscript + ' ');
-        
-        // If text insertion failed and we haven't shown a warning yet
-        if (!textInserted && !hasShownNoTextFieldWarning) {
-          // Schedule a single check after a short delay
-          if (textFieldCheckTimeoutId) {
-            clearTimeout(textFieldCheckTimeoutId);
-          }
+        // Process transcript with LIA PHON for proper noun correction
+        processWithLIAPhon(finalTranscript).then(correctedTranscript => {
+          // After correction, insert the text
+          const textInserted = insertTextAtCursor(correctedTranscript + ' ');
           
-          // Check text field status after a short delay to prevent multiple notifications
-          textFieldCheckTimeoutId = setTimeout(() => {
-            checkTextFieldStatus();
-            textFieldCheckTimeoutId = null;
-          }, 500);
-        }
+          // Extract potential new proper nouns for learning
+          chrome.runtime.sendMessage({
+            action: 'extractPotentialProperNouns',
+            text: correctedTranscript
+          }).catch(error => {
+            console.error('Error extracting proper nouns:', error);
+          });
+          
+          // Only show a warning if text insertion failed AND we haven't already shown a warning
+          if (!textInserted && !hasShownNoTextFieldWarning) {
+            showNotification('Please click into a text field to dictate text.', 'warning', 5000);
+            hasShownNoTextFieldWarning = true;
+          }
+        });
       }
     };
     
@@ -724,21 +611,9 @@ function injectContentScript() {
           isRecording = false;
           updateRecordingState(false);
           
-          // Clear the timeout if it exists
-          if (textFieldCheckTimeoutId) {
-            clearTimeout(textFieldCheckTimeoutId);
-            textFieldCheckTimeoutId = null;
-          }
-          
           showNotification('Speech recognition stopped unexpectedly.', 'error');
         }
       } else {
-        // Clear the timeout if it exists
-        if (textFieldCheckTimeoutId) {
-          clearTimeout(textFieldCheckTimeoutId);
-          textFieldCheckTimeoutId = null;
-        }
-        
         showNotification('Voice dictation stopped.', 'info', 2000);
       }
     };
@@ -750,12 +625,6 @@ function injectContentScript() {
   async function startRecognition() {
     // Reset the warning flag at the start of each recording session
     hasShownNoTextFieldWarning = false;
-    
-    // Clear any existing timeout
-    if (textFieldCheckTimeoutId) {
-      clearTimeout(textFieldCheckTimeoutId);
-      textFieldCheckTimeoutId = null;
-    }
     
     const initialized = await initializeSpeechRecognition();
     if (!initialized || !recognition) {
@@ -775,14 +644,8 @@ function injectContentScript() {
     }
   }
   
-// Stop speech recognition
-function stopRecognition() {
-    // Clear the text field check timeout
-    if (textFieldCheckTimeoutId) {
-      clearTimeout(textFieldCheckTimeoutId);
-      textFieldCheckTimeoutId = null;
-    }
-    
+  // Stop speech recognition
+  function stopRecognition() {
     if (recognition) {
       try {
         recognition.stop();
@@ -796,90 +659,128 @@ function stopRecognition() {
     updateRecordingState(false);
   }
   
-  // Insert text at the current cursor position
+  // Insert text at cursor position
   function insertTextAtCursor(text) {
-    const activeElement = document.activeElement;
+    console.log('Attempting to insert text:', text);
     
-    // Check if there's a valid text input selected
+    // Get the active element
+    const activeElement = document.activeElement;
+    console.log('Active element:', activeElement.tagName, activeElement);
+    
+    // Check if the active element is a valid text input element
     if (!isValidTextInputElement(activeElement)) {
-      // Try to find and focus a valid input
-      const textInput = findValidTextInputElement();
-      if (textInput) {
-        textInput.focus();
+      console.log('No suitable active element found for text insertion');
+      
+      // Find a valid text input element on the page
+      const inputElement = findValidTextInputElement();
+      
+      if (inputElement) {
+        // Don't try a recursive approach
+        try {
+          // Focus the element
+          inputElement.focus();
+          console.log('Focused element:', inputElement);
+          
+          // Try to insert the text directly based on the element type
+          if (inputElement.isContentEditable) {
+            // For contentEditable elements, use selection API if available
+            const selection = window.getSelection();
+            if (selection.rangeCount > 0) {
+              const range = selection.getRangeAt(0);
+              range.deleteContents();
+              range.insertNode(document.createTextNode(text));
+              
+              // Move cursor to end of inserted text
+              range.setStartAfter(range.endContainer);
+              range.setEndAfter(range.endContainer);
+              selection.removeAllRanges();
+              selection.addRange(range);
+              return true;
+            } else {
+              // Fallback if selection API is not working
+              inputElement.textContent += text;
+              return true;
+            }
+          } else if (inputElement.tagName === 'TEXTAREA' || inputElement.tagName === 'INPUT') {
+            // For input and textarea elements, append to the end
+            inputElement.value += text;
+            // Fire input event to trigger any listeners
+            const inputEvent = new Event('input', { bubbles: true });
+            inputElement.dispatchEvent(inputEvent);
+            return true;
+          }
+        } catch (error) {
+          console.error('Error focusing or inserting text:', error);
+          return false;
+        }
       } else {
-        // No valid text input found
+        // Don't show notification here, let the caller decide
         return false;
       }
     }
     
-    // Now get the newly focused element
-    const el = document.activeElement;
-    
-    // Handle different types of inputs
-    if (el.isContentEditable) {
-      // For contentEditable elements (rich text editors)
-      
-      // Create a text node with the transcribed text
-      const textNode = document.createTextNode(text);
-      
-      // Get the current selection
-      const selection = window.getSelection();
-      
-      if (selection.rangeCount > 0) {
-        // Get the current range
-        const range = selection.getRangeAt(0);
+    try {
+      if (activeElement.isContentEditable) {
+        // For contentEditable elements (like rich text editors)
+        console.log('Inserting into contentEditable element');
+        const selection = window.getSelection();
+        if (selection.rangeCount > 0) {
+          const range = selection.getRangeAt(0);
+          range.deleteContents();
+          range.insertNode(document.createTextNode(text));
+          
+          // Move cursor to end of inserted text
+          range.setStartAfter(range.endContainer);
+          range.setEndAfter(range.endContainer);
+          selection.removeAllRanges();
+          selection.addRange(range);
+          return true;
+        } else {
+          // No selection range, just append text
+          activeElement.textContent += text;
+          return true;
+        }
+      } else if (activeElement.tagName === 'TEXTAREA' || 
+                (activeElement.tagName === 'INPUT' && 
+                ['text', 'search', 'url', 'tel', 'email', 'password', 'number'].includes(activeElement.type))) {
+        // For input and textarea elements
+        console.log('Inserting into input/textarea element');
+        const start = activeElement.selectionStart;
+        const end = activeElement.selectionEnd;
+        const value = activeElement.value;
         
-        // Delete any selected content
-        range.deleteContents();
+        // Insert text at cursor position
+        activeElement.value = value.substring(0, start) + text + value.substring(end);
         
-        // Insert the new text
-        range.insertNode(textNode);
+        // Move cursor to end of inserted text
+        activeElement.selectionStart = activeElement.selectionEnd = start + text.length;
         
-        // Move cursor to the end of the inserted text
-        range.setStartAfter(textNode);
-        range.setEndAfter(textNode);
-        selection.removeAllRanges();
-        selection.addRange(range);
-        
-        // Dispatch an input event to trigger any listeners
-        el.dispatchEvent(new Event('input', { bubbles: true }));
+        // Fire input event to trigger any listeners
+        const inputEvent = new Event('input', { bubbles: true });
+        activeElement.dispatchEvent(inputEvent);
         return true;
       }
-      
+    } catch (error) {
+      console.error('Error inserting text:', error);
       return false;
-    } else if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') {
-      // For standard input fields and textareas
-      
-      // Check for special Google search case
-      const isGoogleSearch = window.location.hostname.includes('google') && 
-                          (el.name === 'q' || el.id === 'search');
-      
-      // Get current cursor position
-      const startPos = el.selectionStart;
-      const endPos = el.selectionEnd;
-      
-      // Join the parts: text before cursor + new text + text after cursor
-      const newValue = el.value.substring(0, startPos) + text + el.value.substring(endPos);
-      
-      // Set the updated value
-      el.value = newValue;
-      
-      // Move cursor to after the inserted text
-      el.selectionStart = el.selectionEnd = startPos + text.length;
-      
-      // Dispatch events to trigger any listeners (especially important for Google Search)
-      el.dispatchEvent(new Event('input', { bubbles: true }));
-      el.dispatchEvent(new Event('change', { bubbles: true }));
-      
-      // Special handling for Google search
-      if (isGoogleSearch) {
-        // Additional input event simulation for Google search
-        el.dispatchEvent(new InputEvent('input', { bubbles: true, data: text }));
-      }
-      
-      return true;
     }
     
     return false;
   }
+  
+  // Listen for focus events to reset warnings when a user clicks into a text field
+  document.addEventListener('focusin', function(e) {
+    if (isRecording && isValidTextInputElement(e.target)) {
+      // User focused a valid text field, remove any warnings
+      hasShownNoTextFieldWarning = false;
+      removeNotification();
+    }
+  });
+  
+  // Add keyboard listener for Shift key within the document
+  document.addEventListener('keydown', function(event) {
+    if (event.key === 'Shift' && !event.repeat) {
+      toggleRecording();
+    }
+  });
 }

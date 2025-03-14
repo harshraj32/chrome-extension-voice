@@ -1,12 +1,13 @@
 {
   "manifest_version": 3,
-  "name": "Voice Dictation Tool",
+  "name": "Voice Dictation with Proper Noun Correction",
   "version": "1.0",
-  "description": "Dictate text into any text field",
+  "description": "Dictate text into any text field with advanced proper noun correction",
   "permissions": [
     "activeTab",
     "scripting",
-    "commands"
+    "commands",
+    "storage"
   ],
   "host_permissions": [
     "<all_urls>"

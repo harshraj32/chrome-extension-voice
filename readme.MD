@@ -1,6 +1,34 @@
 # Voice Dictation Chrome Extension with Proper Noun Correction
 
 A powerful Chrome extension that enables voice dictation with advanced proper noun correction using the LIA PHON system.
+# Voice Dictation Chrome Extension
+
+## Component Overview
+
+### Background Script (background.js)
+
+The background script serves as the main controller for the Voice Dictation Chrome extension. It:
+
+- Manages the extension's icon state (active/inactive)
+- Handles user interactions like toolbar icon clicks and keyboard shortcuts
+- Injects the content script into web pages when needed
+- Processes messages between the content script and the LIA PHON handler
+- Coordinates the overall extension functionality and state
+
+It acts as the bridge between user actions, the browser's context, and the specialized voice dictation functionality.
+
+### LIA PHON Handler (lia-phon-handler.js)
+
+The LIA PHON handler is the specialized module for improving speech recognition accuracy, particularly for proper nouns. It:
+
+- Maintains a database of proper nouns and their phonetic representations
+- Converts recognized speech into phonetic patterns for matching
+- Corrects misrecognized words based on phonetic similarity
+- Optionally processes text through an LLM (like ChatGPT) for further correction
+- Identifies and learns new proper nouns to improve future recognition
+
+It essentially works as the "intelligence" layer that enhances the browser's built-in speech recognition with specialized capabilities for handling names, technical terms, and other frequently misrecognized words.
+
 
 ## Overview
 
